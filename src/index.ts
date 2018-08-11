@@ -87,7 +87,7 @@ export class Request {
 		if (options.body) {
 			this.send(options.body);
 		}
-		this._options.userAgent = options.userAgent || 'better-fetch';
+		this._options.userAgent = options.userAgent || 'snek-node';
 	}
 
 	query (name: object | string, value?: string) {
