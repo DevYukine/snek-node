@@ -26,17 +26,29 @@ export type Options = {
 
 export interface Result {
 	body: object | string | Buffer;
-	raw: Promise<string>;
+	raw: string;
 	ok: boolean;
 	statusCode: number;
 	statusText: string;
 	headers: StringObject;
 }
 
-export class HTTPError extends Error {
+export class HTTPError extends Error implements Result {
+	body: object | string | Buffer;
+	raw: string;
+	ok: boolean;
+	statusCode: number;
+	statusText: string;
+	headers: StringObject;
+
 	constructor (message: string, res: Result) {
 		super(message);
-		Object.assign(this, res);
+		this.body = res.body;
+		this.raw = res.raw;
+		this.ok = res.ok;
+		this.statusCode = res.statusCode;
+		this.statusText = res.statusText;
+		this.headers = res.headers;
 		this.name = this.constructor.name;
 	}
 }
@@ -138,7 +150,6 @@ export class Request {
 	}
 
 	private async execute(): Promise<Result> {
-		return new Promise<Result>((resolve, reject) => {
 			if (this._options.query) {
 				let index = 0;
 				for (const key of Object.keys(this._options.query)) {
@@ -147,48 +158,51 @@ export class Request {
 				}
 			}
 			if (!this._options.headers['user-agent']) this.set('user-agent', this._options.userAgent);
-			fetch(this._options.url, { body: this._options.body, method: this._options.method, headers: this._options.headers })
-				.then(res => {
-					const result = this._getResult(res);
-					if (result.ok) {
-						resolve(result);
-					} else {
-						reject(new HTTPError(`${res.status} ${res.statusText}`, result));
-					}
-				})
-				.catch(error => reject(new HTTPError(`${error.status} ${error.statusText}`, this._getResult(error))));
-		});
+			try {
+				const res = await fetch(this._options.url, { body: this._options.body, method: this._options.method, headers: this._options.headers });
+				const result = await this._createResult(res);
+				if (result.ok) {
+					return result;
+				} else {
+					throw new HTTPError(`${res.status} ${res.statusText}`, result);
+				}
+			} catch (error) {
+				throw new HTTPError(`${error.status} ${error.statusText}`, await this._createResult(error));
+			}
 	}
 
-	private _getResult(response: Response): Result {
-		const headers: StringObject = {};
-		for (const [key, value] of response.headers.entries() as any) {
-			if (key && value) headers[key] = value;
-		}
-		return {
-			async body() {
-				const type = response.headers.get('content-type');
-				const raw = await this.raw;
-				let parsed;
-				if (type) {
-					if (/application\/json/.test(type)) {
-						try {
-							parsed = JSON.parse(raw);
-						} catch (_) {
-							parsed = String(raw);
+	private _createResult(response: Response): Promise<Result> {
+		return new Promise((resolve) => {
+			const headers: StringObject = {};
+			for (const [key, value] of response.headers.entries() as any) {
+				if (key && value) headers[key] = value;
+			}
+			let result = '';
+			response.body.on('data', chunk => { result += chunk; });
+			response.body.on('end', () => resolve({
+				get body() {
+					const type = response.headers.get('content-type');
+					let parsed;
+					if (type) {
+						if (/application\/json/.test(type)) {
+							try {
+								parsed = JSON.parse(result);
+							} catch (_) {
+								parsed = String(result);
+							}
+						} else if (/application\/x-www-form-urlencoded/.test(type)) {
+							parsed = parse(result);
 						}
-					} else if (/application\/x-www-form-urlencoded/.test(type)) {
-						parsed = parse(raw);
 					}
-				}
-				if (!parsed) parsed = raw;
-				return parsed;
-			},
-			raw: response.text(),
-			ok: response.ok,
-			statusCode: response.status,
-			statusText: response.statusText,
-			headers
-		};
+					if (!parsed) parsed = result;
+					return parsed;
+				},
+				raw: result,
+				ok: response.ok,
+				statusCode: response.status,
+				statusText: response.statusText,
+				headers
+			}));
+		});
 	}
 }
