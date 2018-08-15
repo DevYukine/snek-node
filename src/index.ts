@@ -87,7 +87,7 @@ export class Request {
 		if (options.body) {
 			this.send(options.body);
 		}
-		this._options.userAgent = options.userAgent || 'snek-node';
+		this._options.userAgent = options.userAgent || `snek-node ${version} https://github.com/Dev-Yukine/snek-node`;
 	}
 
 	query (name: object | string, value?: string) {
@@ -147,6 +147,10 @@ export class Request {
 
 	catch(rejector: (error: HTTPError) => void) {
 		return this.then(undefined, rejector);
+	}
+
+	end(): void {
+		this.then(undefined, undefined);
 	}
 
 	private async execute(): Promise<Result> {
